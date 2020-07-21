@@ -14,6 +14,32 @@
 
 /* Namespace for core functionality related to Forms. */
 horizon.forms = {
+  handle_manage_ip: function () {
+    $(document).on('DOMNodeInserted', function (e) {
+      if ($(e.target).attr('id') !== 'changeip_modal' && window.location.href.indexOf('changeip') === -1) {
+        return
+      }
+      const changeIpFormSelector = '#changeip_form'
+      let anyRadioChecked = $(changeIpFormSelector + ' input:radio').is(':checked')
+      if (!anyRadioChecked) {
+        $(changeIpFormSelector + ' input:radio:first').click()
+      }
+      $(changeIpFormSelector + ' input:radio').on("change", function (e) {
+        const inputDisable = function (selectedPortDisabled, fixedIpDisabled) {
+          $(changeIpFormSelector + ' #id_selected_port').siblings('button').attr('disabled', selectedPortDisabled)
+          $(changeIpFormSelector + ' #id_fixed_ip').attr('disabled', fixedIpDisabled)
+        }
+
+        const radioMapping = {
+          'id_actions_0': function () { inputDisable(false, false) },
+          'id_actions_1': function () { inputDisable(true, false) },
+          'id_actions_2': function () { inputDisable(false, true) }
+        }
+        radioMapping[$(e.target).attr('id')]()
+      });
+    });
+  },
+
   handle_snapshot_source: function() {
     $("div.table_wrapper, #modal_wrapper").on("change", "select#id_snapshot_source", function() {
       var $option = $(this).find("option:selected");
@@ -468,6 +494,7 @@ horizon.addInitFunction(horizon.forms.init = function () {
   horizon.forms.datepicker();
   horizon.forms.handle_subnet_address_source();
   horizon.forms.handle_subnet_subnetpool();
+  horizon.forms.handle_manage_ip();
 
   if (!horizon.conf.disable_password_reveal) {
     horizon.forms.add_password_fields_reveal_buttons($body);

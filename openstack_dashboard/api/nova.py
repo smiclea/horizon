@@ -43,6 +43,10 @@ from openstack_dashboard.api import base
 from openstack_dashboard.api import microversions
 from openstack_dashboard.contrib.developer.profiler import api as profiler
 
+from keystoneauth1 import session
+from keystoneauth1 import loading
+from novaguestclient import client as novaguestclient
+
 LOG = logging.getLogger(__name__)
 
 # Supported compute versions
@@ -251,7 +255,6 @@ class QuotaSet(base.QuotaSet):
         "security_group_rules",
     }
 
-
 def get_auth_params_from_request(request):
     """Extracts properties needed by novaclient call from the request object.
 
@@ -292,6 +295,28 @@ def novaclient(request_auth_params, version=None):
                            endpoint_override=nova_url)
     return c
 
+def novanetworkingclient(request, version=None):
+    params = {
+        "token": request.user.token.id,
+        "auth_url": base.url_for(request, 'identity'),
+        "project_name": request.user.project_name,
+        "project_domain_id": request.user.token.project.get('domain_id'),
+    }
+    plugin_name = "v3token"
+    loader = loading.get_plugin_loader(plugin_name)
+    auth = loader.load_from_options(**params)
+
+    remote_addr = request.environ.get('REMOTE_ADDR', '')
+    verify = not settings.OPENSTACK_SSL_NO_VERIFY
+    keystone_session = session.Session(auth=auth,
+                                           original_ip=remote_addr,
+                                           verify=verify)
+
+    c = novaguestclient.Client(session=keystone_session)
+    return c
+
+def apply_networking(request, instance_id):
+    return novanetworkingclient(request).networking.apply_networking(instance_id)
 
 def upgrade_api(request, client, version):
     """Ugrade the nova API to the specified version if possible."""
