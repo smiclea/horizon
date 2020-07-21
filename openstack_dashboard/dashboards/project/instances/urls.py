@@ -47,6 +47,8 @@ urlpatterns = [
         views.AttachInterfaceView.as_view(), name='attach_interface'),
     url(INSTANCES % 'detach_interface',
         views.DetachInterfaceView.as_view(), name='detach_interface'),
+    url(INSTANCES % 'changeip',
+        views.ChangeIPView.as_view(), name='changeip'),
     url(r'^(?P<instance_id>[^/]+)/attach_volume/$',
         views.AttachVolumeView.as_view(),
         name='attach_volume'

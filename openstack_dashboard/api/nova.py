@@ -292,6 +292,8 @@ class QuotaSet(base.QuotaSet):
         "security_group_rules",
     }
 
+def apply_networking(request, instance_id):
+    return _nova.novanetworkingclient(request).networking.apply_networking(instance_id)
 
 def upgrade_api(request, client, version):
     """Ugrade the nova API to the specified version if possible."""

@@ -126,6 +126,161 @@ class RebuildInstanceForm(forms.SelfHandlingForm):
         return True
 
 
+class ChangeIPForm(forms.SelfHandlingForm):
+    instance_id = forms.CharField(widget=forms.HiddenInput())
+
+    selected_port = forms.ThemableChoiceField(
+        label=_("Current IP Address"),
+        required=False
+    )
+    fixed_ip = forms.IPField(
+        label=_("New IP Address"),
+        required=False,
+        help_text=_(
+            "IP address for the new port. Leave empty for auto-assignment."),
+        version=forms.IPv4 | forms.IPv6,
+        widget=forms.TextInput()
+    )
+
+    actions = forms.ThemableChoiceField(
+        label=_("Action"),
+        widget=forms.RadioSelect(),
+        required=False,
+        help_text=_(
+            "Select an action to perform based on Current and New IP Addresses"
+        ),
+        choices=[
+            ('change', _("Change Current IP to the New IP Address")),
+            ('add', _("Add the New IP Address")),
+            ('remove', _("Remove the Current IP Address"))
+        ]
+    )
+    ports = []
+    networks = []
+
+    def __init__(self, request, *args, **kwargs):
+        super(ChangeIPForm, self).__init__(request, *args, **kwargs)
+        instance_id = kwargs.get('initial', {}).get('instance_id')
+        self.fields['instance_id'].initial = instance_id
+        try:
+            self.ports = api.neutron.port_list(request, device_id=instance_id)
+            self.networks = api.neutron.network_list(request)
+        except Exception:
+            exceptions.handle(request, _('Unable to retrieve ports '
+                                         'information.'))
+        choices = []
+        for port in self.ports:
+            network_name = list(
+                filter(
+                    lambda network, p=port: network.id == p.network_id,
+                    self.networks
+                ))[0].name
+            for ip in port.fixed_ips:
+                choice_id = _('%s__split__%s') % (port.id, ip['ip_address'])
+                choices.append((choice_id, _('%s (%s)') %
+                                (ip['ip_address'], network_name)))
+            if not port.fixed_ips:
+                choices.append((port.id, _('(No IP address)')))
+        if not choices:
+            choices.insert(0, ("", _("No Ports available")))
+        self.fields['selected_port'].choices = choices
+
+    def apply_networking(self, request, instance_id,
+                         selected_port_id, selected_port_ips, success_message):
+        try:
+            api.nova.apply_networking(request, instance_id)
+            messages.success(request, success_message)
+            return True
+        except Exception as e:
+            messages.error(request, _("Unable to apply networking. %s") % e)
+            self.reverse_networking(
+                request, selected_port_id, selected_port_ips)
+            return False
+
+    def reverse_networking(self, request, selected_port_id, fixed_ips):
+        try:
+            api.neutron.port_update(
+                request, selected_port_id, fixed_ips=fixed_ips)
+        except Exception as e:
+            messages.error(request, _("Unable to reverse network data. %s") % e)
+
+    def handle(self, request, data):
+        instance_id = data.get('instance_id')
+        selected_port_data = data.get('selected_port').split('__split__')
+        selected_port_id = selected_port_data[0]
+        selected_port_ip = None
+        if len(selected_port_data) > 1:
+            selected_port_ip = selected_port_data[1]
+
+        fixed_ip = data.get('fixed_ip') or None
+        action = data.get('actions')
+        selected_port_ips = list(
+            filter(
+                lambda port: port.id == selected_port_id, self.ports
+            ))[0].fixed_ips or []
+        if selected_port_ips:
+            selected_port_ips = list(
+                map(
+                    lambda ip: {'ip_address': ip['ip_address']},
+                    selected_port_ips
+                ))
+
+        if action == 'change':
+            new_selected_port_ips = list(
+                filter(
+                    lambda ip: ip['ip_address'] != selected_port_ip,
+                    selected_port_ips
+                ))
+            new_selected_port_ips.append({'ip_address': fixed_ip})
+            try:
+                api.neutron.port_update(
+                    request, selected_port_id, fixed_ips=new_selected_port_ips)
+            except Exception as e:
+                messages.error(request, _("Unable to change port. %s") % e)
+                return False
+
+            return self.apply_networking(
+                request, instance_id, selected_port_id, selected_port_ips,
+                _('IP address succesfully changed %s.') % instance_id
+            )
+
+        if action == 'add':
+            new_selected_port_ips = list(selected_port_ips)
+            new_selected_port_ips.append({'ip_address': fixed_ip})
+            try:
+                api.neutron.port_update(
+                    request, selected_port_id, fixed_ips=new_selected_port_ips)
+            except Exception as e:
+                messages.error(request, _("Unable to add IP address. %s") % e)
+                return False
+
+            return self.apply_networking(
+                request, instance_id, selected_port_id, selected_port_ips,
+                _('IP address succesfully added %s.') % instance_id
+            )
+
+        if action == 'remove':
+            new_selected_port_ips = list(
+                filter(
+                    lambda ip: ip['ip_address'] != selected_port_ip,
+                    selected_port_ips
+                ))
+            try:
+                api.neutron.port_update(
+                    request, selected_port_id, fixed_ips=new_selected_port_ips)
+            except Exception as e:
+                messages.error(request, _(
+                    "Unable to remove IP address. %s") % e)
+                return False
+
+            return self.apply_networking(
+                request, instance_id, selected_port_id, selected_port_ips,
+                _('IP address succesfully removed %s.') % instance_id
+            )
+
+        return True
+
+
 class DecryptPasswordInstanceForm(forms.SelfHandlingForm):
     instance_id = forms.CharField(widget=forms.HiddenInput())
     _keypair_name_label = _("Key Pair Name")
