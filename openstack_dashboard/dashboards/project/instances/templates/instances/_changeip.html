@@ -1,0 +1,27 @@
+{% extends "horizon/common/_modal_form.html" %}
+{% load i18n %}
+
+{% block form_id %}changeip_form{% endblock %}
+{% block form_action %}{% url "horizon:project:instances:changeip" instance_id %}{% endblock %}
+
+{% block modal_id %}changeip_modal{% endblock %}
+{% block modal-header %}{% trans "Manage Instance IPs" %}{% endblock %}
+
+{% block modal-body %}
+<div class="left">
+  <fieldset>
+    {% include "horizon/common/_form_fields.html" %}
+  </fieldset>
+</div>
+<div class="right">
+  <h3>{% trans "Description:" %}</h3>
+  <p>{% blocktrans trimmed %}
+    Based on the selected action, the selected IP address can be removed, it can be changed to a new IP
+    address or
+    a new IP address can be added without removing the old one.
+    <br /><br />
+    The new IP address will be added to the selected subnet, if no IP address is provided, a new one will be created
+    automatically.
+    {% endblocktrans %}</p>
+</div>
+{% endblock %}

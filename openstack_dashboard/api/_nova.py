@@ -29,6 +29,9 @@ from openstack_dashboard.api import glance
 from openstack_dashboard.api import microversions
 from openstack_dashboard.contrib.developer.profiler import api as profiler
 
+from keystoneauth1 import session
+from keystoneauth1 import loading
+from novaguestclient import client as novaguestclient
 
 # Supported compute versions
 VERSIONS = base.APIVersionManager("compute", preferred_version=2)
@@ -141,6 +144,27 @@ def novaclient(request, version=None):
     if isinstance(version, api_versions.APIVersion):
         version = version.get_string()
     return cached_novaclient(request, version)
+
+
+def novanetworkingclient(request, version=None):
+    params = {
+        "token": request.user.token.id,
+        "auth_url": base.url_for(request, 'identity'),
+        "project_name": request.user.project_name,
+        "project_domain_id": request.user.token.project.get('domain_id'),
+    }
+    plugin_name = "v3token"
+    loader = loading.get_plugin_loader(plugin_name)
+    auth = loader.load_from_options(**params)
+
+    remote_addr = request.environ.get('REMOTE_ADDR', '')
+    verify = not settings.OPENSTACK_SSL_NO_VERIFY
+    keystone_session = session.Session(auth=auth,
+                                       original_ip=remote_addr,
+                                       verify=verify)
+
+    c = novaguestclient.Client(session=keystone_session)
+    return c
 
 
 def get_novaclient_with_instance_desc(request):

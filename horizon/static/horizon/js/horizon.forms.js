@@ -14,6 +14,56 @@
 
 /* Namespace for core functionality related to Forms. */
 horizon.forms = {
+  handle_manage_ip: function () {
+    let loaded = false
+
+    $(document).on('DOMNodeInserted', function (e) {
+      if (window.location.href.indexOf('changeip') === -1) {
+        if ($(e.target).attr('id') !== 'changeip_modal') {
+          return
+        }
+      } else if (loaded) {
+        return
+      }
+
+      loaded = true
+
+      const changeIpFormSelector = '#changeip_form'
+      let anyRadioChecked = $(changeIpFormSelector + ' input:radio').is(':checked')
+      if (!anyRadioChecked) {
+        $(changeIpFormSelector + ' input:radio:first').click()
+      }
+
+      let subnetsClone = $("#id_selected_subnet option").clone()
+      const populateSubnetsDropdown = function () {
+        $("#id_selected_subnet option").remove()
+        let selectedNetworkId = $('#id_selected_ip')[0].value.split('__split__')[1]
+        if (!selectedNetworkId) {
+          let clone = $(subnetsClone[0]).clone()
+          clone.text('No Subnets available')
+          $("#id_selected_subnet").append(clone)
+          return
+        }
+        subnetsClone.each(function () {
+          let subnetNetworkId = this.value.split('__split__')[0]
+          if (subnetNetworkId === selectedNetworkId) {
+            $("#id_selected_subnet").append($(this))
+          }
+        })
+      }
+      populateSubnetsDropdown()
+
+      $('#id_selected_ip').on("change", function (e) {
+        populateSubnetsDropdown()
+      })
+
+      $(changeIpFormSelector + ' input:radio').on("change", function (e) {
+        $(changeIpFormSelector + ' #id_fixed_ip').attr('disabled', $(e.target).attr('id') === 'id_actions_2')
+        $(changeIpFormSelector + ' #id_selected_subnet').siblings('button').attr('disabled', $(e.target).attr('id') === 'id_actions_2')
+      });
+    });
+  },
+
   handle_snapshot_source: function() {
     $("div.table_wrapper, #modal_wrapper").on("change", "select#id_snapshot_source", function() {
       var $option = $(this).find("option:selected");
@@ -471,6 +521,7 @@ horizon.addInitFunction(horizon.forms.init = function () {
   horizon.forms.datepicker();
   horizon.forms.handle_subnet_address_source();
   horizon.forms.handle_subnet_subnetpool();
+  horizon.forms.handle_manage_ip();
 
   if (!horizon.conf.disable_password_reveal) {
     horizon.forms.add_password_fields_reveal_buttons($body);
