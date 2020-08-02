@@ -379,6 +379,22 @@ class DecryptPasswordView(forms.ModalFormView):
                 'keypair_name': self.kwargs['keypair_name']}
 
 
+class ChangeIPView(forms.ModalFormView):
+    form_class = project_forms.ChangeIPForm
+    template_name = 'project/instances/changeip.html'
+    success_url = reverse_lazy('horizon:project:instances:index')
+    page_title = _("Manage Instance IPs")
+    submit_label = _("Update")
+
+    def get_context_data(self, **kwargs):
+        context = super(ChangeIPView, self).get_context_data(**kwargs)
+        context['instance_id'] = self.kwargs['instance_id']
+        return context
+
+    def get_initial(self):
+        return {'instance_id': self.kwargs['instance_id']}
+
+
 class DetailView(tabs.TabView):
     tab_group_class = project_tabs.InstanceDetailTabs
     template_name = 'horizon/common/_detail.html'

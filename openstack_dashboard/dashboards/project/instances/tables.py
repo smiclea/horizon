@@ -622,6 +622,34 @@ class DecryptInstancePassword(tables.LinkAction):
                                                     keypair_name])
 
 
+class ChangeIP(tables.LinkAction):
+    name = "changeip"
+    verbose_name = _("Manage IPs")
+    classes = ("btn-changeip", "ajax-modal")
+    url = "horizon:project:instances:changeip"
+
+    def allowed(self, request, instance):
+        if instance.status == 'SHUTOFF':
+            if "disabled" not in self.classes:
+                self.classes = [c for c in self.classes] + ['disabled']
+                self.attrs = {
+                    'title': 'Available only when instance is active',
+                    'style': 'pointer-events: auto'
+                }
+        else:
+            self.classes = [c for c in self.classes if c != "disabled"]
+            self.attrs = {}
+
+        return ((instance.status in ACTIVE_STATES
+                 or instance.status == 'SHUTOFF') and
+                not is_deleting(instance)
+                and api.base.is_service_enabled(request, 'network'))
+
+    def get_link_url(self, datum):
+        instance_id = self.table.get_object_id(datum)
+        return urlresolvers.reverse(self.url, args=[instance_id])
+
+
 class AssociateIP(policy.PolicyTargetMixin, tables.LinkAction):
     name = "associate"
     verbose_name = _("Associate Floating IP")
@@ -1282,7 +1310,7 @@ class InstancesTable(tables.DataTable):
         row_actions = (StartInstance, ConfirmResize, RevertResize,
                        CreateSnapshot, AssociateIP,
                        SimpleDisassociateIP, AttachInterface,
-                       DetachInterface, EditInstance, AttachVolume,
+                       DetachInterface, ChangeIP, EditInstance, AttachVolume,
                        DetachVolume, UpdateMetadata, DecryptInstancePassword,
                        EditInstanceSecurityGroups, ConsoleLink, LogLink,
                        TogglePause, ToggleSuspend, ToggleShelve,
