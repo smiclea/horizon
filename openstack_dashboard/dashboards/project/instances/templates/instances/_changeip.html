@@ -16,9 +16,12 @@
 <div class="right">
   <h3>{% trans "Description:" %}</h3>
   <p>{% blocktrans trimmed %}
-    Based on the selected action, the selected IP address can be removed, it can be changed to the new IP
+    Based on the selected action, the selected IP address can be removed, it can be changed to a new IP
     address or
-    the new IP address can be added without removing the old one.
+    a new IP address can be added without removing the old one.
+    <br /><br />
+    The new IP address will be added to the selected subnet, if no IP address is provided, a new one will be created
+    automatically.
     {% endblocktrans %}</p>
 </div>
 {% endblock %}

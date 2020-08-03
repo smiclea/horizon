@@ -129,15 +129,19 @@ class RebuildInstanceForm(forms.SelfHandlingForm):
 class ChangeIPForm(forms.SelfHandlingForm):
     instance_id = forms.CharField(widget=forms.HiddenInput())
 
-    selected_port = forms.ThemableChoiceField(
-        label=_("Current IP Address"),
+    selected_ip = forms.ThemableChoiceField(
+        label=_("IP Address"),
         required=False
     )
+
+    selected_subnet = forms.ThemableChoiceField(
+        label=_("Subnet"),
+        required=False
+    )
+
     fixed_ip = forms.IPField(
         label=_("New IP Address"),
         required=False,
-        help_text=_(
-            "IP address for the new port. Leave empty for auto-assignment."),
         version=forms.IPv4 | forms.IPv6,
         widget=forms.TextInput()
     )
@@ -146,12 +150,9 @@ class ChangeIPForm(forms.SelfHandlingForm):
         label=_("Action"),
         widget=forms.RadioSelect(),
         required=False,
-        help_text=_(
-            "Select an action to perform based on Current and New IP Addresses"
-        ),
         choices=[
-            ('change', _("Change Current IP to the New IP Address")),
-            ('add', _("Add the New IP Address")),
+            ('change', _("Change Current IP to a New IP Address")),
+            ('add', _("Add a New IP Address")),
             ('remove', _("Remove the Current IP Address"))
         ]
     )
@@ -168,22 +169,36 @@ class ChangeIPForm(forms.SelfHandlingForm):
         except Exception:
             exceptions.handle(request, _('Unable to retrieve ports '
                                          'information.'))
-        choices = []
+
+        selected_ip_choices = []
         for port in self.ports:
-            network_name = list(
+            network = list(
                 filter(
                     lambda network, p=port: network.id == p.network_id,
                     self.networks
-                ))[0].name
+                ))[0]
             for ip in port.fixed_ips:
-                choice_id = _('%s__split__%s') % (port.id, ip['ip_address'])
-                choices.append((choice_id, _('%s (%s)') %
-                                (ip['ip_address'], network_name)))
+                choice_id = _('%s__split__%s__split__%s') % (
+                    port.id, port.network_id, ip['ip_address'])
+                selected_ip_choices.append((choice_id, _('%s (%s)') %
+                                            (ip['ip_address'], network.name)))
             if not port.fixed_ips:
-                choices.append((port.id, _('(No IP address)')))
-        if not choices:
-            choices.insert(0, ("", _("No Ports available")))
-        self.fields['selected_port'].choices = choices
+                port_id = _('(%s-%s)') % (port.id.split('-')
+                                          [0], port.id.split('-')[1])
+                selected_ip_choices.append(
+                    (port.id, _('No IP address %s') % port_id))
+        if not selected_ip_choices:
+            selected_ip_choices.insert(0, ("", _("No Ports available")))
+        self.fields['selected_ip'].choices = selected_ip_choices
+
+        selected_subnet_choices = []
+        for network in self.networks:
+            for subnet in network.subnets:
+                subnet_id = _('%s__split__%s') % (network.id, subnet.id)
+                subnet_name = subnet.name or _('(%s-%s)') % (subnet.id.split(
+                    '-')[0], subnet.id.split('-')[1])
+                selected_subnet_choices.append((subnet_id, subnet_name))
+        self.fields['selected_subnet'].choices = selected_subnet_choices
 
     def apply_networking(self, request, instance_id,
                          selected_port_id, selected_port_ips, success_message):
@@ -205,79 +220,108 @@ class ChangeIPForm(forms.SelfHandlingForm):
             messages.error(request, _("Unable to reverse network data. %s") % e)
 
     def handle(self, request, data):
+        selected_ip_data = data.get('selected_ip').split('__split__')
         instance_id = data.get('instance_id')
-        selected_port_data = data.get('selected_port').split('__split__')
-        selected_port_id = selected_port_data[0]
-        selected_port_ip = None
-        if len(selected_port_data) > 1:
-            selected_port_ip = selected_port_data[1]
+        new_ip = data.get('fixed_ip') or None
+        port_id = selected_ip_data[0]
+        subnet_data = data.get('selected_subnet').split('__split__')
+        subnet_id = None
+        if len(subnet_data) > 1:
+            subnet_id = subnet_data[1]
+        selected_ip = None
+        if len(selected_ip_data) > 1:
+            selected_ip = selected_ip_data[2]
+        else:
+            subnet_id = None
 
-        fixed_ip = data.get('fixed_ip') or None
         action = data.get('actions')
+
         selected_port_ips = list(
             filter(
-                lambda port: port.id == selected_port_id, self.ports
+                lambda port: port.id == port_id, self.ports
             ))[0].fixed_ips or []
         if selected_port_ips:
             selected_port_ips = list(
                 map(
-                    lambda ip: {'ip_address': ip['ip_address']},
+                    lambda ip: {
+                        'ip_address': ip['ip_address'],
+                        'subnet_id': ip['subnet_id']
+                    },
                     selected_port_ips
                 ))
 
         if action == 'change':
             new_selected_port_ips = list(
                 filter(
-                    lambda ip: ip['ip_address'] != selected_port_ip,
+                    lambda ip: ip['ip_address'] != selected_ip,
                     selected_port_ips
                 ))
-            new_selected_port_ips.append({'ip_address': fixed_ip})
+            if subnet_id:
+                if new_ip:
+                    new_selected_port_ips.append(
+                        {'ip_address': new_ip, 'subnet_id': subnet_id})
+                else:
+                    new_selected_port_ips.append(
+                        {'subnet_id': subnet_id})
+            else:
+                new_selected_port_ips.append({'ip_address': new_ip})
             try:
                 api.neutron.port_update(
-                    request, selected_port_id, fixed_ips=new_selected_port_ips)
+                    request, port_id, fixed_ips=new_selected_port_ips)
             except Exception as e:
                 messages.error(request, _("Unable to change port. %s") % e)
                 return False
 
             return self.apply_networking(
-                request, instance_id, selected_port_id, selected_port_ips,
+                request, instance_id, port_id, selected_port_ips,
                 _('IP address succesfully changed %s.') % instance_id
             )
 
         if action == 'add':
             new_selected_port_ips = list(selected_port_ips)
-            new_selected_port_ips.append({'ip_address': fixed_ip})
+            if subnet_id:
+                if new_ip:
+                    new_selected_port_ips.append(
+                        {'ip_address': new_ip, 'subnet_id': subnet_id})
+                else:
+                    new_selected_port_ips.append(
+                        {'subnet_id': subnet_id})
+            else:
+                new_selected_port_ips.append({'ip_address': new_ip})
             try:
                 api.neutron.port_update(
-                    request, selected_port_id, fixed_ips=new_selected_port_ips)
+                    request, port_id, fixed_ips=new_selected_port_ips)
             except Exception as e:
                 messages.error(request, _("Unable to add IP address. %s") % e)
                 return False
 
             return self.apply_networking(
-                request, instance_id, selected_port_id, selected_port_ips,
+                request, instance_id, port_id, selected_port_ips,
                 _('IP address succesfully added %s.') % instance_id
             )
 
         if action == 'remove':
+            if not selected_ip:
+                messages.error(request, _("No IP Address selected"))
+                return False
+
             new_selected_port_ips = list(
                 filter(
-                    lambda ip: ip['ip_address'] != selected_port_ip,
+                    lambda ip: ip['ip_address'] != selected_ip,
                     selected_port_ips
                 ))
             try:
                 api.neutron.port_update(
-                    request, selected_port_id, fixed_ips=new_selected_port_ips)
+                    request, port_id, fixed_ips=new_selected_port_ips)
             except Exception as e:
                 messages.error(request, _(
                     "Unable to remove IP address. %s") % e)
                 return False
 
             return self.apply_networking(
-                request, instance_id, selected_port_id, selected_port_ips,
+                request, instance_id, port_id, selected_port_ips,
                 _('IP address succesfully removed %s.') % instance_id
             )
-
         return True
 
 
