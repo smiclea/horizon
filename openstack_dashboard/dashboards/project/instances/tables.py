@@ -703,7 +703,11 @@ class ChangeIP(tables.LinkAction):
 
     def get_link_url(self, datum):
         instance_id = self.table.get_object_id(datum)
-        return urls.reverse(self.url, args=[instance_id])
+        base_url = urls.reverse(self.url, args=[instance_id])
+        next_url = self.table.get_full_url()
+        params = {"next": next_url}
+        params = urlencode(params)
+        return "?".join([base_url, params])
 
 
 class AssociateIP(policy.PolicyTargetMixin, tables.LinkAction):

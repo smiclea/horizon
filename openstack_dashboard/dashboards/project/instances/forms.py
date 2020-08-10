@@ -129,6 +129,7 @@ class RebuildInstanceForm(forms.SelfHandlingForm):
 
 class ChangeIPForm(forms.SelfHandlingForm):
     instance_id = forms.CharField(widget=forms.HiddenInput())
+    next_param = forms.CharField(widget=forms.HiddenInput())
 
     selected_ip = forms.ThemableChoiceField(
         label=_("IP Address"),
@@ -164,6 +165,8 @@ class ChangeIPForm(forms.SelfHandlingForm):
         super(ChangeIPForm, self).__init__(request, *args, **kwargs)
         instance_id = kwargs.get('initial', {}).get('instance_id')
         self.fields['instance_id'].initial = instance_id
+        self.fields['next_param'].initial = request.GET.get('next')
+
         try:
             self.ports = api.neutron.port_list(request, device_id=instance_id)
             self.networks = api.neutron.network_list(request)
@@ -201,17 +204,24 @@ class ChangeIPForm(forms.SelfHandlingForm):
                 selected_subnet_choices.append((subnet_id, subnet_name))
         self.fields['selected_subnet'].choices = selected_subnet_choices
 
+    def redirect_to_next(self, request, next_param):
+        if next_param:
+            raise exceptions.Http302(next_param)
+        return True
+
     def apply_networking(self, request, instance_id,
-                         selected_port_id, selected_port_ips, success_message):
+                         selected_port_id, selected_port_ips, success_message,
+                         next_param):
         try:
             api.nova.apply_networking(request, instance_id)
             messages.success(request, success_message)
-            return True
         except Exception as e:
             messages.error(request, _("Unable to apply networking. %s") % e)
             self.reverse_networking(
                 request, selected_port_id, selected_port_ips)
             return False
+
+        return self.redirect_to_next(request, next_param)
 
     def reverse_networking(self, request, selected_port_id, fixed_ips):
         try:
@@ -221,6 +231,7 @@ class ChangeIPForm(forms.SelfHandlingForm):
             messages.error(request, _("Unable to reverse network data. %s") % e)
 
     def handle(self, request, data):
+        next_param = data.get('next_param')
         selected_ip_data = data.get('selected_ip').split('__split__')
         instance_id = data.get('instance_id')
         new_ip = data.get('fixed_ip') or None
@@ -275,7 +286,8 @@ class ChangeIPForm(forms.SelfHandlingForm):
 
             return self.apply_networking(
                 request, instance_id, port_id, selected_port_ips,
-                _('IP address succesfully changed %s.') % instance_id
+                _('IP address succesfully changed %s.') % instance_id,
+                next_param
             )
 
         if action == 'add':
@@ -298,7 +310,8 @@ class ChangeIPForm(forms.SelfHandlingForm):
 
             return self.apply_networking(
                 request, instance_id, port_id, selected_port_ips,
-                _('IP address succesfully added %s.') % instance_id
+                _('IP address succesfully added %s.') % instance_id,
+                next_param
             )
 
         if action == 'remove':
@@ -321,7 +334,8 @@ class ChangeIPForm(forms.SelfHandlingForm):
 
             return self.apply_networking(
                 request, instance_id, port_id, selected_port_ips,
-                _('IP address succesfully removed %s.') % instance_id
+                _('IP address succesfully removed %s.') % instance_id,
+                next_param
             )
         return True
 
